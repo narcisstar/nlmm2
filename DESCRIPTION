@@ -1,0 +1,13 @@
+Package: nlmm
+Type: Package
+Title: What the Package Does (Title Case)
+Version: 0.1.0
+Author: Narcisse Yehouenou
+Maintainer: Narcisse Yehouenou <narcisstar211@gmail.com>
+Description: Nonlinear mixed-effects models with scale
+    mixture of skew-normal distributions.
+License: GPL-3
+Encoding: UTF-8
+Imports: stats
+LazyData: true
+RoxygenNote: 7.1.2
