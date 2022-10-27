@@ -7,7 +7,7 @@
 pereEM(
   formula,
   X.formula,
-  fixef.name = fixef.name,
+  fixef.name,
   Zi = NULL,
   cluster,
   family = "Gamma",
@@ -20,8 +20,18 @@ pereEM(
   maxit = 40,
   tol = 0.001,
   maxit.opt = 16,
-  skew = TRUE
+  skew = TRUE,
+  nuEstim = FALSE
 )
+}
+\arguments{
+\item{formula}{an object of class \code{\link{formula}} (or one that can be coerced to that class): a symbolic description of the non linear model to be fitted.}
+
+\item{X.formula}{an optional one sided formula object: a symbolic description of the design of covariates entering the non linear function along with the mixed effects (non linear parameters).}
+
+\item{fixef.name}{a character vector, specifies the names of the \code{p} fixed effects (non linear parameters) elements of \code{alpha} in their right order.}
+
+\item{start}{a list of initial value \code{alpha} (fixed effects), \code{D} (dispersion matrix), \code{lambda} (skewness parameter), \code{sigma2} (residual variance), \code{nu} (mixture parameter)}
 }
 \description{
 Pereira EM algorithm (fit)

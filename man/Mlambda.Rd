@@ -4,8 +4,18 @@
 \alias{Mlambda}
 \title{Make lambda}
 \usage{
-Mlambda(omegabar, delta)
+Mlambda(omega, delta, lambda)
 }
 \description{
 Make lambda
+}
+\examples{
+Omega = diag(3)
+lambdab <- c(4,4,4)#rep(0, 3)#c(4,4,4)
+Omegabar_b <- MOmegabar(Omega, lambda = lambdab)
+Omegabar_b
+del=Mdelta(Omega, lambdab)
+del
+MDispersion(Omegabar_b, del)
+Mlambda(Omega, del)
 }
