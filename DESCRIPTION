@@ -1,6 +1,6 @@
 Package: nlmm
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Pseudo Non Linear Mixed Model under SMSN Distribution Families.
 Version: 0.1.0
 Author: Narcisse Yehouenou
 Maintainer: Narcisse Yehouenou <narcisstar211@gmail.com>
@@ -9,5 +9,6 @@ Description: Nonlinear mixed-effects models with scale
 License: GPL-3
 Encoding: UTF-8
 Imports: stats
+Depends: EMMIXskew
 LazyData: true
 RoxygenNote: 7.1.2
