@@ -6,12 +6,23 @@
 }
 
 #' Make lambda
-#'
+#' @examples
+#' Omega = diag(3)
+#' lambdab <- c(4,4,4)#rep(0, 3)#c(4,4,4)
+#' Omegabar_b <- MOmegabar(Omega, lambda = lambdab)
+#' Omegabar_b
+#' del=Mdelta(Omega, lambdab)
+#' del
+#' MDispersion(Omegabar_b, del)
+#' Mlambda(Omega, del)
+
 #' @export
-Mlambda <- function(omegabar, delta){
+Mlambda <- function(omega, delta, lambda){
+  if(!missing(lambda) && missing(delta))
+    delta <- Mdelta(omega = omega, lambda = lambda)
   delta <- c(delta)
-  lan <- (solve(sqrtm(omegabar)) %*% delta)/c(sqrt(1 - t(delta) %*% solve(omega) %*% delta))
-  return(lan)
+  lan <- (solve(sqrtm(omega)) %*% delta)/c(sqrt(1 - t(delta) %*% solve(omega) %*% delta))
+  return(c(lan))
 }
 
 #' Make dispersion
@@ -100,7 +111,7 @@ Mdelta <- function(omega, lambda){
 #' Frame for nlmm
 #'
 #' @export
-nlmer.frame <- function (formula, X.formula, fixef.name,
+nlmm.frame <- function (formula, X.formula, fixef.name,
                          cluster, family = "Gamma", data, subset,
                          Zi = NULL, fixedStart,
                          na.action = options("na.action")$na.action
@@ -230,24 +241,33 @@ nlmer.frame <- function (formula, X.formula, fixef.name,
 
 #' Pereira EM algorithm (fit)
 #'
+#' @param formula an object of class \code{\link{formula}} (or one that can be coerced to that class): a symbolic description of the non linear model to be fitted.
+
+#' @param X.formula an optional one sided formula object: a symbolic description of the design of covariates entering the non linear function along with the mixed effects (non linear parameters).
+
+#' @param fixef.name a character vector, specifies the names of the \code{p} fixed effects (non linear parameters) elements of \code{alpha} in their right order.
+#'
+#' @param start a list of initial value \code{alpha} (fixed effects), \code{D} (dispersion matrix), \code{lambda} (skewness parameter), \code{sigma2} (residual variance), \code{nu} (mixture parameter)
+#'
 #' @export
 
-pereEM <- function(formula, X.formula, fixef.name = fixef.name,
+pereEM <- function(formula, X.formula, fixef.name,
                    Zi = NULL, cluster, family = "Gamma", data,
                    subset, na.action = options("na.action")$na.action,
                    start = list(alpha = c(100, 700, 349),
                                 D = diag(c(.5, 1, 1.2)), lambda = rep(4, 3),
                                 sigma2 = 3, nu = NULL),
                    pverbose = TRUE, maxit = 40, tol = 0.001, maxit.opt = 16,
-                   skew = TRUE){# start = pstart,
+                   skew = TRUE, nuEstim = FALSE){# start = pstart,
   begin <- Sys.time()
+  cal <- match.call()
 
   if(is.null(start$nu))
     start$nu <- switch(family, Gamma = 1, Bin = rep(.5, 2), Beta = 1)
 
   param <- start[c("alpha", "D", "lambda", "sigma2", "nu")]
 
-  frame = nlmer.frame(formula = formula, X.formula = X.formula,
+  frame = nlmm.frame(formula = formula, X.formula = X.formula,
                       fixef.name = fixef.name, cluster = cluster,
                       family = family, data = data, subset = subset, Zi = Zi,
                       fixedStart = param$alpha, na.action = na.action)
@@ -263,6 +283,9 @@ pereEM <- function(formula, X.formula, fixef.name = fixef.name,
     k = k + 1
     if(pverbose) cat("iter ", k, "\n")
     mdata <- stepE(param = param, frame = frame)
+    #print(nlmm:::ALPHA(param$alpha, mdata, frame))
+    #print(mdata)
+
     param$alpha <- optim(par = param$alpha, fn = ALPHA, mdata = mdata, frame = frame, method = "BFGS", control = list(maxit = maxit.opt))$par #
     names(param$alpha) <- fixef.name
 
@@ -282,20 +305,22 @@ pereEM <- function(formula, X.formula, fixef.name = fixef.name,
     param$sigma2 <- (1/frame$dim$N) * sum(sapply(1:frame$dim$n, function(i){
       c(mdata[[i]]$ui * t(frame$data[[i]]$Y_i - frame$nlfun(param$alpha, frame$data[[i]]$X_i)) %*% (frame$data[[i]]$Y_i - frame$nlfun(param$alpha, frame$data[[i]]$X_i)) - t(frame$data[[i]]$Y_i - frame$nlfun(param$alpha, frame$data[[i]]$X_i)) %*% frame$data[[i]]$Zi %*% mdata[[i]]$ubi - t(mdata[[i]]$ubi) %*% t(frame$data[[i]]$Zi) %*% (frame$data[[i]]$Y_i - frame$nlfun(param$alpha, frame$data[[i]]$X_i)) + tr(frame$data[[i]]$Zi %*% mdata[[i]]$ubbti %*% t(frame$data[[i]]$Zi)))
     }))
-    if (any(frame$family == c("Bin", "Gamma", "Beta")))
+
+    if (any(frame$family == c("Bin", "Gamma", "Beta") && nuEstim))
       param$nu <- optim(par = param$nu, fn = gyi, param = param, frame = frame, mdata = mdata, method = "BFGS", control = list(maxit = maxit.opt))$par
 
     #print(optim(par = param$nu, fn = gyi, param = param, frame = frame, mdata = mdata, method = "BFGS", control = list(maxit = maxit.opt))$par)
 
     param$D <- param$Gamma + param$Delta %*% t(param$Delta)
 
-    #print(1 - t(c(param$Delta)) %*% solve(param$D) %*% c(param$Delta))
+    #print(sqrt(1 - t(c(param$Delta)) %*% solve(param$D) %*% c(param$Delta)))
     #print(solve(sqrtm(param$D)) %*% param$Delta)
+    #print(sqrtm(param$D))
 
     if(skew)
       param$lambda <- (solve(sqrtm(param$D)) %*% param$Delta)/c(sqrt(1 - t(c(param$Delta)) %*% solve(param$D) %*% c(param$Delta)))
     else
-      param$lambda <- rep(0, frame$dim$p)
+      param$lambda <- rep(0, frame$dim$q)
 
     logLike <- sum(sapply(X = seq_len(frame$dim$n), FUN = function(x) mdata[[x]]$Q1i)) + sum(sapply(X = seq_len(frame$dim$n), FUN = function(x) mdata[[x]]$Q2i))
     if(pverbose)
@@ -309,7 +334,8 @@ pereEM <- function(formula, X.formula, fixef.name = fixef.name,
       dif <- c(param$alpha, param$sigma2, param$lambda, param$D) - old
       old <- c(param$alpha, param$sigma2, param$lambda, param$D)
     }
-    #print(param)
+    print(param)
+    #return(param)
 
 
     dif.logLike <- logLike - old.logLike
@@ -317,10 +343,17 @@ pereEM <- function(formula, X.formula, fixef.name = fixef.name,
     #print((dif.logLike >= tol) && (maxit > k) && (k < 2))
   }
   param$Delta <- param$Gamma <- NULL
+  if(all(frame$family != c("Bin", "Gamma", "Beta")))
+    param$nu <- NULL
+  if(!skew)
+    param$lambda <- NULL
+
   endtime <- Sys.time()
   totaltime <- (difftime(endtime, begin, units = "mins"))
+  random <- sapply(mdata, function(datai) datai$bi)
+  #print(random)
 
-  return(list(param = param, logLike = logLike, totaltime= totaltime, iter = k))
+  return(list(param = param, logLike = logLike, totaltime= totaltime, iter = k, ranef = t(random), call = cal))
 }
 
 stepE <- function(param, frame)
@@ -352,8 +385,6 @@ stepE <- function(param, frame)
 
     Ai <- c(t(lambda_yi) %*% solve(sqrtm(Sigmai)) %*% ri) # Page 9
 
-    #environment(tauir) <- environment()
-    #environment(uir) <- environment()
     ui <- c(uir(frame, param, Sigmai, lambda_yi, ri, Ai, r = 1, i=ind))
     taui <- c(tauir(frame, param, Sigmai, lambda_yi, ri, Ai, r = 1, i=ind)); taui
 
@@ -381,7 +412,7 @@ stepE <- function(param, frame)
     if (!any(frame$family == "Bin", frame$family == "Gamma", frame$family == "Beta"))
       return(list(ui= ui, ut2i= ut2i, ubi= ubi, utbi= utbi, ubbti= ubbti, Q1i= Q1i, Q2i= Q2i, ri= ri, Zi= Zi, yi_hat = yi_hat, Sigmai = Sigmai, lambda_yi = lambda_yi, deltai = deltai))
     else
-      return(list(ui= ui, ut2i= ut2i, ubi= ubi, utbi= utbi, ubbti= ubbti, Q1i= Q1i, Q2i= Q2i, ri= ri, Zi= Zi, yi_hat = yi_hat, nu = nu, Sigmai = Sigmai, lambda_yi = lambda_yi, deltai = deltai))
+      return(list(ui= ui, ut2i= ut2i, ubi= ubi, utbi= utbi, ubbti= ubbti, Q1i= Q1i, Q2i= Q2i, ri= ri, Zi= Zi, yi_hat = yi_hat, nu = nu, Sigmai = Sigmai, lambda_yi = lambda_yi, deltai = deltai, bi = bi))
   })
 
 }
@@ -389,8 +420,8 @@ stepE <- function(param, frame)
 
 #' uir
 #' @description conditional moments. On pages 4 and 5
+#' @import EMMIXskew
 #'
-#' @export
 uir <- function(frame, param, Sigmai, lambda_yi, ri, Ai, i = ind, r = 1)
 {
   yi <- frame$data[[i]]$Y_i
@@ -403,9 +434,8 @@ uir <- function(frame, param, Sigmai, lambda_yi, ri, Ai, i = ind, r = 1)
     #print(frame$nlfun(param$alpha, frame$data[[i]]$X_i))
     #print(yi)
     #ui <- (EMMIXskew::ddmst(dat = yi, n = 1, p = mi, mean = rep(mui, mi), cov = Sigmai, nu = param$nu, del = rep(0, mi))/ddmst(dat = yi, n =1, p = mi, mean = rep(mui, mi), cov = Sigmai, nu = param$nu, del = lambda_yi)) * ((2^2*gamma((param$nu + mi + 2*1)/2) * (param$nu + t(ri)%*%solve(Sigmai)%*%ri)^-1 )/ gamma((param$nu+mi)/2)) * pt(sqrt((param$nu+mi+ 2)/(param$nu + t(ri)%*%solve(Sigmai)%*%ri))*Ai, param$nu+mi+2) #rep(mui, mi)
-    ui <- (dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = rep(0, mi), mixvar = "Gamma")/dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = "Gamma")
-    ) *
-      ((2^(r + 1) * gamma((param$nu + frame$dim$p + 2* r)/2) * (param$nu + t(ri) %*% solve(Sigmai) %*% ri)^-r )/ gamma((param$nu + frame$dim$p)/2)) * pt(sqrt((param$nu + frame$dim$p + 2 * r)/(param$nu + t(ri) %*% solve(Sigmai) %*% ri)) * Ai, param$nu + frame$dim$p +2 * r) # mean = rep(mui, mi)
+    #ui <- (dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = rep(0, mi), mixvar = "Gamma")/dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = "Gamma")) * ((2^(r + 1) * gamma((param$nu + frame$dim$p + 2* r)/2) * (param$nu + t(ri) %*% solve(Sigmai) %*% ri)^-r )/ gamma((param$nu + frame$dim$p)/2)) * pt(sqrt((param$nu + frame$dim$p + 2 * r)/(param$nu + t(ri) %*% solve(Sigmai) %*% ri)) * Ai, param$nu + frame$dim$p +2 * r) # mean = rep(mui, mi)
+    ui <- (ddmst(dat = yi, n = 1, p = mi, mean = frame$nlfun(param$alpha, frame$data[[i]]$X_i), cov = MOmegabar(omega = Sigmai, lambda = lambda_yi), nu = param$nu, del = rep(0, mi))/ddmst(dat = yi, n = 1, p = mi, mean = frame$nlfun(param$alpha, frame$data[[i]]$X_i), cov = MOmegabar(omega = Sigmai, lambda = lambda_yi), nu = param$nu, del = Mdelta(omega = Sigmai, lambda = lambda_yi))) * ((2^(r + 1) * gamma((param$nu + frame$dim$p + 2* r)/2) * (param$nu + t(ri) %*% solve(Sigmai) %*% ri)^-r )/ gamma((param$nu + frame$dim$p)/2)) * pt(sqrt((param$nu + frame$dim$p + 2 * r)/(param$nu + t(ri) %*% solve(Sigmai) %*% ri)) * Ai, param$nu + frame$dim$p +2 * r) # mean = rep(mui, mi)
   }
   #frame$nlfun(param$alpha, frame$data[[i]]$X_i)
 
@@ -415,24 +445,25 @@ uir <- function(frame, param, Sigmai, lambda_yi, ri, Ai, i = ind, r = 1)
 
 
   else if (frame$family == "Beta"){
-    ui <- (dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = rep(0, mi), mixvar = "Beta")/dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = "Beta"))
-    # * ((2 * gamma((2 * param$nu + frame$dim$p + 2 * r)/2)/ gamma((2 * param$nu + frame$dim$p)/2))) *
-    #(2/(t(ri) %*% solve(Sigmai) %*% ri))^r *
-     # pgamma()
+    ui <- (dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = rep(0, mi), mixvar = "Beta")/dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = "Beta")) *
+      ((2 * gamma((2 * param$nu + frame$dim$p + 2 * r)/2)/ gamma((2 * param$nu + frame$dim$p)/2))) *
+    (2/(t(ri) %*% solve(Sigmai) %*% ri))^r *
+      (pgamma(q = 1, shape = param$nu + .5 * frame$dim$p + r, rate = (t(ri) %*% solve(Sigmai) %*% ri)/2)/pgamma(q = 1, shape = param$nu + .5 * frame$dim$p, rate = (t(ri) %*% solve(Sigmai) %*% ri)/2)) *
+      integrate(f = EPhi, lower = 0, upper = 1, A = Ai, nu = param$nu, r = r, d = t(ri) %*% solve(Sigmai) %*% ri, p = frame$dim$p)$value
   }
   else
     ui <- 1
 
-  if (!is.finite(ui)) warning("'ui' return infinite")
-    #ui <- 1
+  if (!is.finite(c(ui))) {
+    warning("'ui' returns non numeric")
+    ui <- 1
+  }
 
-  return(ui)
+  return(c(ui))
 }
-
 
 #' tauir
 #' @description page 4 et 5
-#' @export
 
 tauir <- function(frame, param, Sigmai, lambda_yi, ri, Ai, r = 1, i = ind)
 {
@@ -441,26 +472,33 @@ tauir <- function(frame, param, Sigmai, lambda_yi, ri, Ai, r = 1, i = ind)
 
   if(frame$family == "Gamma"){
     #taui <- (ddmst(dat = yi, n = 1, p = mi, mean = rep(mui, mi), cov = Sigmai, nu = param$nu)/ddmst(yi, 1, mi, rep(mui, mi), Sigmai, param$nu, del = lambda_yi)) * (2^((r+1)/2) * gamma((param$nu + mi + r)/2) / (sqrt(pi) * gamma((param$nu + mi)/2))) * (((param$nu + t(ri) %*% solve(Sigmai) %*% ri)^((param$nu + mi)/2))/ ((param$nu + t(ri) %*% solve(Sigmai) %*% ri + Ai^2)^((param$nu + mi + r)/2)))
-    taui <- (dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = rep(0, mi), mixvar = "Gamma")/dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = "Gamma")) * (2^((r+1)/2) * gamma((param$nu + mi + r)/2) / (sqrt(pi) * gamma((param$nu + mi)/2))) * (((param$nu + t(ri) %*% solve(Sigmai) %*% ri)^((param$nu + mi)/2))/ ((param$nu + t(ri) %*% solve(Sigmai) %*% ri + Ai^2)^((param$nu + mi + r)/2)))
+    #taui <- (dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = rep(0, mi), mixvar = "Gamma")/dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = "Gamma")) * (2^((r+1)/2) * gamma((param$nu + mi + r)/2) / (sqrt(pi) * gamma((param$nu + mi)/2))) * (((param$nu + t(ri) %*% solve(Sigmai) %*% ri)^((param$nu + mi)/2))/ ((param$nu + t(ri) %*% solve(Sigmai) %*% ri + Ai^2)^((param$nu + mi + r)/2)))
+    taui <- (ddmst(dat = yi, n = 1, p = mi, mean = frame$nlfun(param$alpha, frame$data[[i]]$X_i), cov = MOmegabar(omega = Sigmai, lambda = lambda_yi), nu = param$nu, del = rep(0, mi))/ddmst(dat = yi, n = 1, p = mi, mean = frame$nlfun(param$alpha, frame$data[[i]]$X_i), cov = MOmegabar(omega = Sigmai, lambda = lambda_yi), nu = param$nu, del = Mdelta(omega = Sigmai, lambda = lambda_yi))) * (2^((r+1)/2) * gamma((param$nu + mi + r)/2) / (sqrt(pi) * gamma((param$nu + mi)/2))) * (((param$nu + t(ri) %*% solve(Sigmai) %*% ri)^((param$nu + mi)/2))/ ((param$nu + t(ri) %*% solve(Sigmai) %*% ri + Ai^2)^((param$nu + mi + r)/2)))
 
   }
   else if(frame$family == "Bin")
     taui <- (2/dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = "Bin")) * (param$nu[1] * param$nu[2]^r *dmnorm(yi, frame$nlfun(param$alpha, frame$data[[i]]$X_i), Var = param$nu[2]^-1 * Sigmai)* dnorm(sqrt(param$nu[2]) * Ai) + (1 - param$nu[1])* dmnorm(yi, frame$nlfun(param$alpha, frame$data[[i]]$X_i), Sigmai)* dnorm(Ai))
 
-  #else if(frame$family == "Beta")
-    #taui <- ll
+  else if(frame$family == "Beta"){
+    taui <- (dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = rep(0, mi), mixvar = "Beta")/dmssmn(x = yi, mu = frame$nlfun(param$alpha, frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = param$nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = "Beta")) *
+    (2^((r+1)/2) * gamma((2 * param$nu + frame$dim$p + 2 * r)/2)/ (sqrt(pi) * gamma((2 * param$nu + frame$dim$p)/2))) *
+    ((t(ri) %*% solve(Sigmai) %*% ri)^(param$nu + .5 * frame$dim$p)/(t(ri) %*% solve(Sigmai) %*% ri + Ai^2)^((2* param$nu + frame$dim$p + r)/2)) *
+    (pgamma(q = 1, shape = param$nu + .5 * frame$dim$p + .5 * r, rate = (t(ri) %*% solve(Sigmai) %*% ri + Ai^2)/2)/pgamma(q = 1, shape = param$nu + .5 * frame$dim$p, rate = (t(ri) %*% solve(Sigmai) %*% ri)/2))
+    }
+
   else
     taui <- dnorm(Ai)/pnorm(Ai)
 
-  if (!is.finite(taui)) warning("'taui returns infinite.")
-    #taui <- 1e-10
+  if (!is.finite(c(taui))) {
+    warning("'taui' returns non numeric")
+    taui <- 1
+  }
 
-  return(taui)
+  return(c(taui))
 }
 
 #' Alpha, fixed effect function
 #' @description eq 17
-#' @export
 ALPHA <- function(alpha = param$alpha, mdata, frame){
   sum(sapply(1:frame$dim$n , function(i){
     c(mdata[[i]]$ui/2 * t(frame$data[[i]]$Y_i - frame$nlfun(alpha, frame$data[[i]]$X_i)) %*% (frame$data[[i]]$Y_i - frame$nlfun(alpha, frame$data[[i]]$X_i)) - t(frame$data[[i]]$Y_i - frame$nlfun(alpha, frame$data[[i]]$X_i)) %*% frame$data[[i]]$Zi %*% mdata[[i]]$ubi)
@@ -473,7 +511,7 @@ gyi <- function(nu, param, mdata, frame){
       Sigmai = mdata[[i]]$Sigmai
       lambda_yi = mdata[[i]]$lambda_yi
 
-      c(fnlmer::dmssmn(x = frame$data[[i]]$Y_i, mu = frame$nlfun(phi = param$alpha, X = frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = frame$family))
+      c(dmssmn(x = frame$data[[i]]$Y_i, mu = frame$nlfun(phi = param$alpha, X = frame$data[[i]]$X_i), Omegabar = MOmegabar(omega = Sigmai, lambda = lambda_yi), df = nu, delta = Mdelta(omega = Sigmai, lambda = lambda_yi), mixvar = frame$family, log = FALSE))
     }))
 
   else if (frame$family == "Bin00") # Not to use
@@ -483,4 +521,9 @@ gyi <- function(nu, param, mdata, frame){
   return(res)
 }
 
-
+#used in beta ui computation
+EPhi <- function(x, A, nu, r, d, p){
+  pnorm(sqrt(x) * A) *
+    dgamma(x, nu + .5 * p + r, d/2)/
+    pgamma(1, nu + .5 * p + r, d/2)
+}

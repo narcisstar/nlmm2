@@ -16,7 +16,7 @@
 #' @param log logical; if \code{TRUE}, densities \code{d} are given as \code{log(d)}.
 #'
 #' @details See \code{heavy::rmnorm} for a faster alternative to \code{rmvnorm}, and \code{dmnorm} is just an alias for \code{dmvnorm}.
-#'
+#' @export
 
 # Multivariate normal density
 dmvnorm <- function (x, mean = rep(0, p), Var = diag(p), log = FALSE) {
